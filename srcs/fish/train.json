@@ -6,13 +6,13 @@
     },
     {
       "input": {
-        "text": "This is a photo of tench.",
+        "text": "This is a photo of tench. [IMAGE]",
         "image": "srcs/fish/images/train_1.png"
       }
     },
     {
       "input": {
-        "text": "This is a photo of goldfish.",
+        "text": "This is a photo of goldfish. [IMAGE]",
         "image": "srcs/fish/images/train_2.png"
       }
     }
