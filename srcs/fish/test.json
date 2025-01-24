@@ -1,9 +1,20 @@
 [
     {
       "input": {
-        "text": "What do you see here?",
-        "image": "path/to/test_image1.jpg"
-      },
-      "output": "A group of people having a picnic in a park."
+        "text": "what is the object in this photo?",
+        "image": "srcs/fish/images/train_1.png"
+      }
+    },
+    {
+      "input": {
+        "text": "what is the object in this photo?",
+        "image": "srcs/fish/images/train_2.png"
+      }
+    },
+    {
+      "input": {
+        "text": "what is the object in this photo?",
+        "image": "srcs/fish/images/train_3.png"
+      }
     }
   ]

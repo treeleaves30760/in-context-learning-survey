@@ -1,16 +1,19 @@
 [
     {
       "input": {
-        "text": "Describe what you see in this image.",
-        "image": "path/to/image1.jpg"
-      },
-      "output": "A black and white cat sitting on a windowsill looking outside."
+        "text": "I will give you some example, please answer the question based on the example"
+      }
     },
     {
       "input": {
-        "text": "What's in this image?",
-        "image": "path/to/image2.jpg"
-      },
-      "output": "A red sports car parked in front of a modern building."
+        "text": "This is a photo of tench.",
+        "image": "srcs/fish/images/train_1.png"
+      }
+    },
+    {
+      "input": {
+        "text": "This is a photo of goldfish.",
+        "image": "srcs/fish/images/train_2.png"
+      }
     }
   ]
