@@ -1,3 +1,6 @@
 transformers
 tenacity
 torch
+accelerate
+tqdm
+python-dotenv
