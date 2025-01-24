@@ -17,8 +17,9 @@ load_dotenv()
 
 
 class ICLExperiment:
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, model_type: str):
         self.model_name = model_name
+        self.model_type = model_type
         self.is_llama = 'llama' in model_name.lower()
 
         print(f"Loading model and processor from {model_name}...")
@@ -50,9 +51,7 @@ class ICLExperiment:
         if image_paths:
             images = [self.load_image(path) for path in image_paths]
 
-            if self.is_llama:
-                # For Llama models, replace [IMAGE] placeholders with <|image|>
-                text = text.replace("[IMAGE]", "<|image|>")
+            if self.model_type == 'llama3':
                 inputs = self.processor(
                     text=text,
                     images=images,
@@ -98,7 +97,7 @@ class ICLExperiment:
             # Decode and return only the new tokens
             full_output = self.processor.decode(
                 outputs[0], skip_special_tokens=True)
-            if self.is_llama:
+            if self.model_type == 'llama3':
                 # Extract only the Assistant's response
                 response = full_output.split("Assistant:")[-1].strip()
             else:
@@ -118,24 +117,28 @@ class ICLExperiment:
         """Create prompt using previous examples and current input, return prompt and list of image paths."""
         image_paths = []
 
-        if self.is_llama:
+        if self.model_type == 'llama3':
             # First instruction example
-            prompt = f"User: {examples_so_far[0]['input']['text']}\nAssistant: I understand. I will help you with the task.\n\n"
+            prompt = f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>{examples_so_far[0]['input']['text']}<|eot_id|>"
+            prompt += f"<|start_header_id|>assistant<|end_header_id|>I understand. I will help you with the task.<|eot_id|>"
 
             # Add previous examples
             for ex in examples_so_far[1:]:  # Skip instruction
                 if 'image' in ex['input']:
-                    prompt += f"User: {ex['input']['text']}\nAssistant: {ex['output']}\n\n"
+                    prompt += f"<|start_header_id|>user<|end_header_id|>{ex['input']['text']}<|eot_id|><|start_header_id|>assistant<|end_header_id|>{ex['output']}<|eot_id|>"
                     image_paths.append(ex['input']['image'])
                 else:
-                    prompt += f"User: {ex['input']['text']}\nAssistant: {ex['output']}\n\n"
+                    prompt += f"<|start_header_id|>user<|end_header_id|>{ex['input']['text']}<|eot_id|><|start_header_id|>assistant<|end_header_id|>{ex['output']}<|eot_id|>"
 
             # Add current input
             if 'image' in current_input:
-                prompt += f"User: {current_input['text']}"
+                prompt += f"<|start_header_id|>user<|end_header_id|>{current_input['text']}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
                 image_paths.append(current_input['image'])
             else:
-                prompt += f"User: {current_input['text']}"
+                prompt += f"<|start_header_id|>user<|end_header_id|>{current_input['text']}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
+
+            # For Llama models, replace [IMAGE] placeholders with <|image|>
+            prompt = prompt.replace("[IMAGE]", "<|image|>")
 
         else:
             prompt = f"{examples_so_far[0]['input']['text']}\n\n"
@@ -178,6 +181,8 @@ class ICLExperiment:
         for test_ex in tqdm(test_examples):
             prompt, image_paths = self.create_context_prompt(
                 trained_examples, test_ex['input'])
+            print(f'prompt: {prompt}')
+            exit()
             prediction = self.get_completion(prompt, image_paths)
             results.append({
                 'input': test_ex['input'],
@@ -219,6 +224,8 @@ def main():
                         help='Directory containing train and test data')
     parser.add_argument('--output_file', type=str, default='',
                         help='Path to save results')
+    parser.add_argument('--model_type', type=str, default='llama3',
+                        help='Model type (llama3, Qwen, GLM, etc.)')
 
     args = parser.parse_args()
 
@@ -229,7 +236,7 @@ def main():
         test_examples = json.load(f)
 
     # Initialize experiment
-    experiment = ICLExperiment(args.model)
+    experiment = ICLExperiment(args.model, args.model_type)
 
     # Run experiment
     results = experiment.run_experiment(train_examples, test_examples, args)
