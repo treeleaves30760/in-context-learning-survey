@@ -11,15 +11,12 @@ pip install -r requirements.txt
 
 If you need to use cuda, install the [torch](https://pytorch.org/get-started/locally/) manually.
 
+Create an .env file for HuggingFace Token.
+
 ## Usage
 
 ```bash
-python in-context-learning.py \
-    --model "deepseek-ai/DeepSeek-R1-Distill-Llama-8B" \
-    --provider "huggingface" \
-    --train_data "train.json" \
-    --test_data "test.json" \
-    --output_file "results.json"
+python in-context-learning.py --model "meta-llama/Llama-3.2-11B-Vision-Instruct" --train_dir "srcs/fish"
 ```
 
 ## Reference
