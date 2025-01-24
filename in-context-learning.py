@@ -1,6 +1,6 @@
 import argparse
 import json
-from typing import List, Dict, Union
+from typing import List, Dict, Tuple, Union
 import torch
 from PIL import Image
 import requests
@@ -11,6 +11,7 @@ from transformers import AutoModelForCausalLM, AutoProcessor
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 from dotenv import load_dotenv
 from tqdm import tqdm
+from datetime import datetime
 
 load_dotenv()
 
@@ -42,16 +43,17 @@ class ICLExperiment:
             print(f"Error loading image {image_path}: {str(e)}")
             raise
 
-    def process_input(self, text: str, image_path: str = None):
-        """Process text and optional image input."""
-        if image_path:
-            image = self.load_image(image_path)
+    def process_input(self, text: str, image_paths: List[str] = None):
+        """Process text and multiple images input."""
+        if image_paths:
+            images = [self.load_image(path) for path in image_paths]
             
             if self.is_llama:
-                # For Llama models
+                # For Llama models, replace [IMAGE] placeholders with <|image|>
+                text = text.replace("[IMAGE]", "<|image|>")
                 inputs = self.processor(
-                    text=f"<|image|>User: {text}\nAssistant:",
-                    images=image,
+                    text=text,
+                    images=images,
                     return_tensors="pt"
                 )
                 # Remove unused kwargs
@@ -62,7 +64,7 @@ class ICLExperiment:
             else:
                 inputs = self.processor(
                     text=text,
-                    images=image,
+                    images=images,
                     return_tensors="pt",
                     padding=True
                 ).to(self.model.device)
@@ -76,9 +78,9 @@ class ICLExperiment:
         return inputs
 
     @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
-    def get_completion(self, text: str, image_path: str = None) -> str:
+    def get_completion(self, text: str, image_paths: List[str] = None) -> str:
         try:
-            inputs = self.process_input(text, image_path)
+            inputs = self.process_input(text, image_paths)
             
             with torch.no_grad():
                 outputs = self.model.generate(
@@ -107,8 +109,10 @@ class ICLExperiment:
             print(f"Error in model inference: {str(e)}")
             raise
 
-    def create_context_prompt(self, examples_so_far: List[Dict], current_input: Dict) -> str:
-        """Create prompt using previous examples and current input."""
+    def create_context_prompt(self, examples_so_far: List[Dict], current_input: Dict) -> Tuple[str, List[str]]:
+        """Create prompt using previous examples and current input, return prompt and list of image paths."""
+        image_paths = []
+
         if self.is_llama:
             # First instruction example
             prompt = f"User: {examples_so_far[0]['input']['text']}\nAssistant: I understand. I will help you with the task.\n\n"
@@ -117,18 +121,33 @@ class ICLExperiment:
             for ex in examples_so_far[1:]:  # Skip instruction
                 if 'image' in ex['input']:
                     prompt += f"User: {ex['input']['text']}\nAssistant: {ex['output']}\n\n"
+                    image_paths.append(ex['input']['image'])
+                else:
+                    prompt += f"User: {ex['input']['text']}\nAssistant: {ex['output']}\n\n"
             
             # Add current input
-            prompt += f"User: {current_input['text']}"
+            if 'image' in current_input:
+                prompt += f"User: {current_input['text']}"
+                image_paths.append(current_input['image'])
+            else:
+                prompt += f"User: {current_input['text']}"
             
         else:
             prompt = f"{examples_so_far[0]['input']['text']}\n\n"
             for idx, ex in enumerate(examples_so_far[1:]):
                 if 'image' in ex['input']:
                     prompt += f"Example {idx + 1}:\nInput: {ex['input']['text']}\nOutput: {ex['output']}\n\n"
-            prompt += f"Now, please provide the output for this input:\n{current_input['text']}"
+                    image_paths.append(ex['input']['image'])
+                else:
+                    prompt += f"Example {idx + 1}:\nInput: {ex['input']['text']}\nOutput: {ex['output']}\n\n"
+                    
+            if 'image' in current_input:
+                prompt += f"Now, please provide the output for this input:\n{current_input['text']}"
+                image_paths.append(current_input['image'])
+            else:
+                prompt += f"Now, please provide the output for this input:\n{current_input['text']}"
             
-        return prompt
+        return prompt, image_paths
 
     def run_sequential_training(self, train_examples: List[Dict]) -> List[Dict]:
         """Run sequential in-context learning on training examples."""
@@ -137,12 +156,10 @@ class ICLExperiment:
         print("Processing training examples sequentially...")
         for i in tqdm(range(1, len(train_examples))):
             current_example = train_examples[i]
-            if 'image' in current_example['input']:
-                # Create prompt using all previous examples
-                prompt = self.create_context_prompt(processed_examples, current_example['input'])
-                # Generate output
-                output = self.get_completion(prompt, current_example['input']['image'])
-                current_example['output'] = output
+            prompt, image_paths = self.create_context_prompt(processed_examples, current_example['input'])
+                        
+            # Get completion with all images in context
+            current_example['output'] = self.get_completion(prompt, image_paths)
             processed_examples.append(current_example)
             
         return processed_examples
@@ -152,24 +169,26 @@ class ICLExperiment:
         results = []
         print("Running inference on test examples...")
         for test_ex in tqdm(test_examples):
-            prompt = self.create_context_prompt(trained_examples, test_ex['input'])
-            prediction = self.get_completion(prompt, test_ex['input'].get('image'))
+            prompt, image_paths = self.create_context_prompt(trained_examples, test_ex['input'])
+            prediction = self.get_completion(prompt, image_paths)
             results.append({
                 'input': test_ex['input'],
                 'predicted_output': prediction
             })
         return results
 
-    def run_experiment(self, train_examples: List[Dict], test_examples: List[Dict]) -> Dict:
-        # Sequential training
-        trained_examples = self.run_sequential_training(train_examples)
-        
-        # Save processed training examples
-        train_dir = os.path.dirname(os.path.join('srcs/example', 'train.json'))
-        processed_train_path = os.path.join(train_dir, 'train_with_outputs.json')
-        with open(processed_train_path, 'w') as f:
-            json.dump(trained_examples, f, indent=2)
-        print(f"Saved processed training examples to {processed_train_path}")
+    def run_experiment(self, train_examples: List[Dict], test_examples: List[Dict], args: argparse) -> Dict:
+        processed_train_path = os.path.join(args.train_dir, 'train_with_outputs.json')
+        if not os.path.exists(processed_train_path):
+            # Sequential training
+            trained_examples = self.run_sequential_training(train_examples)
+            with open(processed_train_path, 'w') as f:
+                json.dump(trained_examples, f, indent=2)
+            print(f"Saved processed training examples to {processed_train_path}")
+        else:
+            with open(processed_train_path, 'r') as f:
+                trained_examples = json.load(f)
+            print(f"Loaded processed training examples from {processed_train_path}")
         
         # Test inference
         test_results = self.run_test_inference(trained_examples, test_examples)
@@ -185,7 +204,7 @@ def main():
                        help='Model name (e.g., meta-llama/Llama-2-7b-chat-hf)')
     parser.add_argument('--train_dir', type=str, default='srcs/example',
                         help='Directory containing train and test data')
-    parser.add_argument('--output_file', type=str, default='results.json',
+    parser.add_argument('--output_file', type=str, default='',
                        help='Path to save results')
     
     args = parser.parse_args()
@@ -200,9 +219,11 @@ def main():
     experiment = ICLExperiment(args.model)
     
     # Run experiment
-    results = experiment.run_experiment(train_examples, test_examples)
+    results = experiment.run_experiment(train_examples, test_examples, args)
     
     # Save results
+    if not args.output_file:
+        args.output_file = os.path.join(args.train_dir, f'{args.model}_{datetime.now()}_results.json')
     with open(args.output_file, 'w') as f:
         json.dump(results, f, indent=2)
 
