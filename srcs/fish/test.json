@@ -1,20 +1,20 @@
 [
     {
       "input": {
-        "text": "what is the object in this photo?",
-        "image": "srcs/fish/images/train_1.png"
+        "text": "what is the object in this photo? [IMAGE]",
+        "image": "srcs/fish/images/test_1.png"
       }
     },
     {
       "input": {
-        "text": "what is the object in this photo?",
-        "image": "srcs/fish/images/train_2.png"
+        "text": "what is the object in this photo? [IMAGE]",
+        "image": "srcs/fish/images/test_2.png"
       }
     },
     {
       "input": {
-        "text": "what is the object in this photo?",
-        "image": "srcs/fish/images/train_3.png"
+        "text": "what is the object in this photo? [IMAGE]",
+        "image": "srcs/fish/images/test_3.png"
       }
     }
   ]
