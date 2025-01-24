@@ -7,18 +7,23 @@ import requests
 from io import BytesIO
 import base64
 import os
-from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoProcessor
 from tenacity import retry, stop_after_attempt, wait_random_exponential
+from dotenv import load_dotenv
+from tqdm import tqdm
+
+load_dotenv()
 
 class ICLExperiment:
-    def __init__(self, model_name: str, provider: str = "huggingface"):
+    def __init__(self, model_name: str):
         self.model_name = model_name
-        self.provider = provider
+        self.is_llama = 'llama' in model_name.lower()
         
         print(f"Loading model and processor from {model_name}...")
-        self.processor = AutoProcessor.from_pretrained(model_name)
+        self.processor = AutoProcessor.from_pretrained(model_name, token=os.getenv("HUGGINGFACE_TOKEN"))
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
+            token=os.getenv("HUGGINGFACE_TOKEN"),
             torch_dtype=torch.float16,
             device_map="auto"
         )
@@ -41,39 +46,40 @@ class ICLExperiment:
         """Process text and optional image input."""
         if image_path:
             image = self.load_image(image_path)
-            inputs = self.processor(
-                text=text,
-                images=image,
-                return_tensors="pt",
-                padding=True
-            )
+            
+            if self.is_llama:
+                # For Llama models
+                inputs = self.processor(
+                    text=f"<|image|>User: {text}\nAssistant:",
+                    images=image,
+                    return_tensors="pt"
+                )
+                # Remove unused kwargs
+                inputs = {
+                    'input_ids': inputs['input_ids'].to(self.model.device),
+                    'attention_mask': inputs['attention_mask'].to(self.model.device)
+                }
+            else:
+                inputs = self.processor(
+                    text=text,
+                    images=image,
+                    return_tensors="pt",
+                    padding=True
+                ).to(self.model.device)
         else:
             inputs = self.processor(
                 text=text,
                 return_tensors="pt",
                 padding=True
-            )
-        return inputs.to(self.model.device)
+            ).to(self.model.device)
+            
+        return inputs
 
     @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
-    def get_completion(self, prompt: Union[str, Dict], system_prompt: str = None) -> str:
+    def get_completion(self, text: str, image_path: str = None) -> str:
         try:
-            # Handle both string and dictionary inputs
-            if isinstance(prompt, dict):
-                text = prompt['text']
-                image_path = prompt.get('image')
-            else:
-                text = prompt
-                image_path = None
-
-            # Combine system prompt if provided
-            if system_prompt:
-                text = f"{system_prompt}\n{text}"
-
-            # Process inputs
             inputs = self.process_input(text, image_path)
             
-            # Generate response
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
@@ -86,62 +92,101 @@ class ICLExperiment:
                 )
             
             # Decode and return only the new tokens
-            response = self.processor.decode(
-                outputs[0][inputs['input_ids'].shape[1]:],
-                skip_special_tokens=True
-            )
+            full_output = self.processor.decode(outputs[0], skip_special_tokens=True)
+            if self.is_llama:
+                # Extract only the Assistant's response
+                response = full_output.split("Assistant:")[-1].strip()
+            else:
+                # For other models, get only the new tokens
+                prompt_length = len(self.processor.decode(inputs['input_ids'][0], skip_special_tokens=True))
+                response = self.processor.decode(outputs[0][prompt_length:], skip_special_tokens=True)
+                
             return response.strip()
                 
         except Exception as e:
             print(f"Error in model inference: {str(e)}")
             raise
 
-    def create_few_shot_prompt(self, examples: List[Dict], test_input: Dict) -> Dict:
-        """Create few-shot prompt with support for image inputs."""
-        prompt_text = "Here are some examples:\n\n"
-        
-        # Add examples
-        for idx, ex in enumerate(examples):
-            prompt_text += f"Example {idx + 1}:\n"
-            prompt_text += f"Input: {ex['input']['text']}\n"
-            prompt_text += f"Output: {ex['output']}\n\n"
-        
-        # Add test input
-        prompt_text += f"Now, please provide the output for this input:\n{test_input['text']}"
-        
-        # Return prompt with the current image path
-        return {
-            "text": prompt_text,
-            "image": test_input.get('image')
-        }
+    def create_context_prompt(self, examples_so_far: List[Dict], current_input: Dict) -> str:
+        """Create prompt using previous examples and current input."""
+        if self.is_llama:
+            # First instruction example
+            prompt = f"User: {examples_so_far[0]['input']['text']}\nAssistant: I understand. I will help you with the task.\n\n"
+            
+            # Add previous examples
+            for ex in examples_so_far[1:]:  # Skip instruction
+                if 'image' in ex['input']:
+                    prompt += f"User: {ex['input']['text']}\nAssistant: {ex['output']}\n\n"
+            
+            # Add current input
+            prompt += f"User: {current_input['text']}"
+            
+        else:
+            prompt = f"{examples_so_far[0]['input']['text']}\n\n"
+            for idx, ex in enumerate(examples_so_far[1:]):
+                if 'image' in ex['input']:
+                    prompt += f"Example {idx + 1}:\nInput: {ex['input']['text']}\nOutput: {ex['output']}\n\n"
+            prompt += f"Now, please provide the output for this input:\n{current_input['text']}"
+            
+        return prompt
 
-    def run_experiment(self, 
-                      train_examples: List[Dict],
-                      test_examples: List[Dict],
-                      system_prompt: str = None) -> List[Dict]:
+    def run_sequential_training(self, train_examples: List[Dict]) -> List[Dict]:
+        """Run sequential in-context learning on training examples."""
+        processed_examples = [train_examples[0]]  # Start with instruction
+        
+        print("Processing training examples sequentially...")
+        for i in tqdm(range(1, len(train_examples))):
+            current_example = train_examples[i]
+            if 'image' in current_example['input']:
+                # Create prompt using all previous examples
+                prompt = self.create_context_prompt(processed_examples, current_example['input'])
+                # Generate output
+                output = self.get_completion(prompt, current_example['input']['image'])
+                current_example['output'] = output
+            processed_examples.append(current_example)
+            
+        return processed_examples
+
+    def run_test_inference(self, trained_examples: List[Dict], test_examples: List[Dict]) -> List[Dict]:
+        """Run inference on test examples using all training examples."""
         results = []
-        for test_ex in test_examples:
-            prompt = self.create_few_shot_prompt(train_examples, test_ex['input'])
-            prediction = self.get_completion(prompt, system_prompt)
+        print("Running inference on test examples...")
+        for test_ex in tqdm(test_examples):
+            prompt = self.create_context_prompt(trained_examples, test_ex['input'])
+            prediction = self.get_completion(prompt, test_ex['input'].get('image'))
             results.append({
                 'input': test_ex['input'],
-                'true_output': test_ex['output'],
                 'predicted_output': prediction
             })
         return results
 
+    def run_experiment(self, train_examples: List[Dict], test_examples: List[Dict]) -> Dict:
+        # Sequential training
+        trained_examples = self.run_sequential_training(train_examples)
+        
+        # Save processed training examples
+        train_dir = os.path.dirname(os.path.join('srcs/example', 'train.json'))
+        processed_train_path = os.path.join(train_dir, 'train_with_outputs.json')
+        with open(processed_train_path, 'w') as f:
+            json.dump(trained_examples, f, indent=2)
+        print(f"Saved processed training examples to {processed_train_path}")
+        
+        # Test inference
+        test_results = self.run_test_inference(trained_examples, test_examples)
+        
+        return {
+            'trained_examples': trained_examples,
+            'test_results': test_results
+        }
+
 def main():
     parser = argparse.ArgumentParser(description='Run in-context learning experiments')
     parser.add_argument('--model', type=str, required=True,
-                       help='Model name (e.g., deepseek-ai/DeepSeek-R1-Distill-Llama-8B)')
+                       help='Model name (e.g., meta-llama/Llama-2-7b-chat-hf)')
     parser.add_argument('--train_dir', type=str, default='srcs/example',
                         help='Directory containing train and test data')
-    parser.add_argument('--system_prompt', type=str, default=None,
-                       help='Optional system prompt')
     parser.add_argument('--output_file', type=str, default='results.json',
                        help='Path to save results')
-    parser.add_argument('--device', type=str, default='cuda',
-                       help='Device to run the model on (cuda/cpu)')
     
     args = parser.parse_args()
     
@@ -155,11 +200,7 @@ def main():
     experiment = ICLExperiment(args.model)
     
     # Run experiment
-    results = experiment.run_experiment(
-        train_examples,
-        test_examples,
-        args.system_prompt
-    )
+    results = experiment.run_experiment(train_examples, test_examples)
     
     # Save results
     with open(args.output_file, 'w') as f:
