@@ -16,7 +16,7 @@ Create an .env file for HuggingFace Token.
 ## Usage
 
 ```bash
-python in-context-learning.py --model "meta-llama/Llama-3.2-11B-Vision-Instruct" --train_dir "srcs/fish" --model_type "llama3"
+python in_context_learning.py --model "meta-llama/Llama-3.2-11B-Vision-Instruct" --train_dir "srcs/fish" --model_type "llama3"
 ```
 
 ## Reference
