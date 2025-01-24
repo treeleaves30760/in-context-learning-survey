@@ -94,18 +94,16 @@ class ICLExperiment:
                     eos_token_id=self.processor.tokenizer.eos_token_id
                 )
 
-            # Decode and return only the new tokens
-            full_output = self.processor.decode(
-                outputs[0], skip_special_tokens=True)
-            if self.model_type == 'llama3':
-                # Extract only the Assistant's response
-                response = full_output.split("Assistant:")[-1].strip()
+            # Decode output
+            response = self.processor.decode(outputs[0])
+
+            # Extract only the last assistant response
+            if self.model_type == 'llama3' and '<|start_header_id|>assistant<|end_header_id|>' in response:
+                responses = response.split(
+                    '<|start_header_id|>assistant<|end_header_id|>')
+                response = responses[-1].split('<|eot_id|>')[0].strip()
             else:
-                # For other models, get only the new tokens
-                prompt_length = len(self.processor.decode(
-                    inputs['input_ids'][0], skip_special_tokens=True))
-                response = self.processor.decode(
-                    outputs[0][prompt_length:], skip_special_tokens=True)
+                response = response.split('\n')[-1].strip()
 
             return response.strip()
 
@@ -181,7 +179,6 @@ class ICLExperiment:
         for test_ex in tqdm(test_examples):
             prompt, image_paths = self.create_context_prompt(
                 trained_examples, test_ex['input'])
-            print(f'prompt: {prompt}')
             prediction = self.get_completion(prompt, image_paths)
             results.append({
                 'input': test_ex['input'],
@@ -239,11 +236,12 @@ def main():
 
     # Run experiment
     results = experiment.run_experiment(train_examples, test_examples, args)
+    results['model'] = args.model
 
     # Save results
     if not args.output_file:
         args.output_file = os.path.join(
-            args.train_dir, 'results', f'{args.model}_{datetime.now()}_results.json')
+            args.train_dir, 'results', f'{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}_results.json')
     with open(args.output_file, 'w') as f:
         json.dump(results, f, indent=2)
 
