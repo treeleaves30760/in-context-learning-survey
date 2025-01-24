@@ -223,7 +223,7 @@ def main():
     
     # Save results
     if not args.output_file:
-        args.output_file = os.path.join(args.train_dir, f'{args.model}_{datetime.now()}_results.json')
+        args.output_file = os.path.join(args.train_dir, 'results', f'{args.model}_{datetime.now()}_results.json')
     with open(args.output_file, 'w') as f:
         json.dump(results, f, indent=2)
 
