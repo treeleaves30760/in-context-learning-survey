@@ -182,7 +182,6 @@ class ICLExperiment:
             prompt, image_paths = self.create_context_prompt(
                 trained_examples, test_ex['input'])
             print(f'prompt: {prompt}')
-            exit()
             prediction = self.get_completion(prompt, image_paths)
             results.append({
                 'input': test_ex['input'],
