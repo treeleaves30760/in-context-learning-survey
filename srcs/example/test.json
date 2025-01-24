@@ -1,0 +1,9 @@
+[
+    {
+      "input": {
+        "text": "What do you see here?",
+        "image": "path/to/test_image1.jpg"
+      },
+      "output": "A group of people having a picnic in a park."
+    }
+  ]
