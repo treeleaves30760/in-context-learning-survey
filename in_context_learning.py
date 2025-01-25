@@ -8,10 +8,11 @@ import torch
 from PIL import Image
 import requests
 from io import BytesIO
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import MllamaForConditionalGeneration, AutoProcessor
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 from dotenv import load_dotenv
 from tqdm import tqdm
+from rich import print
 
 load_dotenv()
 
@@ -25,7 +26,7 @@ class ICLExperiment:
         print(f"Loading model and processor from {model_name}...")
         self.processor = AutoProcessor.from_pretrained(
             model_name, token=os.getenv("HUGGINGFACE_TOKEN"))
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = MllamaForConditionalGeneration.from_pretrained(
             model_name,
             token=os.getenv("HUGGINGFACE_TOKEN"),
             torch_dtype=torch.float16,
@@ -53,15 +54,11 @@ class ICLExperiment:
 
             if self.model_type == 'llama3':
                 inputs = self.processor(
-                    text=text,
-                    images=images,
+                    images,
+                    text,
+                    add_special_tokens=False,
                     return_tensors="pt"
-                )
-                # Remove unused kwargs
-                inputs = {
-                    'input_ids': inputs['input_ids'].to(self.model.device),
-                    'attention_mask': inputs['attention_mask'].to(self.model.device)
-                }
+                ).to(self.model.device)
             else:
                 inputs = self.processor(
                     text=text,
@@ -81,6 +78,10 @@ class ICLExperiment:
     @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
     def get_completion(self, text: str, image_paths: List[str] = None) -> str:
         try:
+            print(f'============Generate Info===========\n')
+            print(f'\ntext: {text}')
+            print(f'\nimage_paths: {image_paths}')
+            print(f'\n==========Generate Info============\n')
             inputs = self.process_input(text, image_paths)
 
             with torch.no_grad():
@@ -94,18 +95,13 @@ class ICLExperiment:
                     eos_token_id=self.processor.tokenizer.eos_token_id
                 )
 
-            # Decode output
             response = self.processor.decode(outputs[0])
+            output = response.replace(text, '').strip()
+            print(f'============Generate Output===========\n')
+            print(f'output: {output}')
+            print(f'\n==========Generate Output============\n')
 
-            # Extract only the last assistant response
-            if self.model_type == 'llama3' and '<|start_header_id|>assistant<|end_header_id|>' in response:
-                responses = response.split(
-                    '<|start_header_id|>assistant<|end_header_id|>')
-                response = responses[-1].split('<|eot_id|>')[0].strip()
-            else:
-                response = response.split('\n')[-1].strip()
-
-            return response.strip()
+            return output
 
         except Exception as e:
             print(f"Error in model inference: {str(e)}")
@@ -117,41 +113,42 @@ class ICLExperiment:
 
         if self.model_type == 'llama3':
             # First instruction example
-            prompt = f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>{examples_so_far[0]['input']['text']}<|eot_id|>"
-            prompt += f"<|start_header_id|>assistant<|end_header_id|>I understand. I will help you with the task.<|eot_id|>"
+            print(f'\nexamples_so_far: {examples_so_far}')
+            print(f'\ncurrent_input: {current_input}')
 
-            # Add previous examples
-            for ex in examples_so_far[1:]:  # Skip instruction
+            messages = []
+
+            for idx, ex in enumerate(examples_so_far):
+                userChat = dict()
                 if 'image' in ex['input']:
-                    prompt += f"<|start_header_id|>user<|end_header_id|>{ex['input']['text']}<|eot_id|><|start_header_id|>assistant<|end_header_id|>{ex['output']}<|eot_id|>"
+                    userChat['role'] = 'user'
+                    userChat['content'] = [
+                        {'type': "text", 'text': ex['input']['text']}, {'type': "image"}]
                     image_paths.append(ex['input']['image'])
                 else:
-                    prompt += f"<|start_header_id|>user<|end_header_id|>{ex['input']['text']}<|eot_id|><|start_header_id|>assistant<|end_header_id|>{ex['output']}<|eot_id|>"
+                    userChat['role'] = 'user'
+                    userChat['content'] = [
+                        {'type': "text", 'text': ex['input']['text']}]
+                messages.append(userChat)
 
-            # Add current input
-            if 'image' in current_input:
-                prompt += f"<|start_header_id|>user<|end_header_id|>{current_input['text']}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
-                image_paths.append(current_input['image'])
-            else:
-                prompt += f"<|start_header_id|>user<|end_header_id|>{current_input['text']}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
-
-            # For Llama models, replace [IMAGE] placeholders with <|image|>
-            prompt = prompt.replace("[IMAGE]", "<|image|>")
-
-        else:
-            prompt = f"{examples_so_far[0]['input']['text']}\n\n"
-            for idx, ex in enumerate(examples_so_far[1:]):
-                if 'image' in ex['input']:
-                    prompt += f"Example {idx + 1}:\nInput: {ex['input']['text']}\nOutput: {ex['output']}\n\n"
-                    image_paths.append(ex['input']['image'])
-                else:
-                    prompt += f"Example {idx + 1}:\nInput: {ex['input']['text']}\nOutput: {ex['output']}\n\n"
+                assistantChat = dict()
+                if 'output' in ex:
+                    assistantChat['role'] = 'assistant'
+                    assistantChat['content'] = [
+                        {'type': "text", 'text': ex['output']}]
+                messages.append(assistantChat)
 
             if 'image' in current_input:
-                prompt += f"Now, please provide the output for this input:\n{current_input['text']}"
+                messages.append({'role': 'user', 'content': [
+                                {'type': "text", 'text': current_input['text']}, {'type': "image"}]})
                 image_paths.append(current_input['image'])
             else:
-                prompt += f"Now, please provide the output for this input:\n{current_input['text']}"
+                messages.append({'role': 'user', 'content': [
+                                {'type': "text", 'text': current_input['text']}]})
+
+            print(f'\nmessages: {messages}')
+            prompt = self.processor.apply_chat_template(
+                messages, add_generator_token=True)
 
         return prompt, image_paths
 
