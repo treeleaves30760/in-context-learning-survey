@@ -1,19 +1,19 @@
 [
     {
       "input": {
-        "text": "what is the object in this photo? [IMAGE]",
+        "text": "what is the object in this photo?",
         "image": "srcs/fish/images/test_1.png"
       }
     },
     {
       "input": {
-        "text": "what is the object in this photo? [IMAGE]",
+        "text": "what is the object in this photo?",
         "image": "srcs/fish/images/test_2.png"
       }
     },
     {
       "input": {
-        "text": "what is the object in this photo? [IMAGE]",
+        "text": "what is the object in this photo?",
         "image": "srcs/fish/images/test_3.png"
       }
     }
