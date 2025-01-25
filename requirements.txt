@@ -4,3 +4,4 @@ torch
 accelerate
 tqdm
 python-dotenv
+rich
