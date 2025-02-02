@@ -8,7 +8,9 @@ import torch
 from PIL import Image
 import requests
 from io import BytesIO
-from transformers import MllamaForConditionalGeneration, AutoProcessor
+from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers import MllamaForConditionalGeneration
+from transformers import LlavaNextProcessor, LlavaNextForConditionalGeneration
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -23,15 +25,36 @@ class ICLExperiment:
         self.model_type = model_type
         self.is_llama = 'llama' in model_name.lower()
 
-        print(f"Loading model and processor from {model_name}...")
-        self.processor = AutoProcessor.from_pretrained(
-            model_name, token=os.getenv("HUGGINGFACE_TOKEN"))
-        self.model = MllamaForConditionalGeneration.from_pretrained(
-            model_name,
-            token=os.getenv("HUGGINGFACE_TOKEN"),
-            torch_dtype=torch.float16,
-            device_map="auto"
-        )
+        print(
+            f"Loading model and processor from {model_name}, model type: {model_type}...")
+        if self.model_type == 'llava_llama3':
+            print("Use the LlavaNext model")
+            self.processor = LlavaNextProcessor.from_pretrained(
+                model_name, token=os.getenv("HUGGINGFACE_TOKEN"))
+            self.model = LlavaNextForConditionalGeneration.from_pretrained(
+                model_name,
+                token=os.getenv("HUGGINGFACE_TOKEN"),
+                torch_dtype=torch.float16,
+                device_map="auto"
+            )
+        elif self.model_type == 'llama3':
+            self.processor = AutoProcessor.from_pretrained(
+                model_name, token=os.getenv("HUGGINGFACE_TOKEN"))
+            self.model = MllamaForConditionalGeneration.from_pretrained(
+                model_name,
+                token=os.getenv("HUGGINGFACE_TOKEN"),
+                torch_dtype=torch.float16,
+                device_map="auto"
+            )
+        else:
+            self.processor = AutoProcessor.from_pretrained(
+                model_name, token=os.getenv("HUGGINGFACE_TOKEN"))
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                token=os.getenv("HUGGINGFACE_TOKEN"),
+                torch_dtype=torch.float16,
+                device_map="auto"
+            )
         print("Model loaded successfully!")
 
     def load_image(self, image_path: str) -> Image.Image:
@@ -111,7 +134,7 @@ class ICLExperiment:
         """Create prompt using previous examples and current input, return prompt and list of image paths."""
         image_paths = []
 
-        if self.model_type == 'llama3':
+        if self.model_type in ['llama3', 'llava_llama3']:
             # First instruction example
             print(f'\nexamples_so_far: {examples_so_far}')
             print(f'\ncurrent_input: {current_input}')
@@ -150,6 +173,12 @@ class ICLExperiment:
             prompt = self.processor.apply_chat_template(
                 messages, add_generator_token=True)
 
+        else:
+            prompt = " ".join([ex['input'] for ex in examples_so_far])
+            prompt += f" {current_input['text']}"
+
+            if 'image' in current_input:
+                image_paths.append(current_input['image'])
         return prompt, image_paths
 
     def run_sequential_training(self, train_examples: List[Dict]) -> List[Dict]:
