@@ -1,0 +1,32 @@
+[
+    {
+      "input": {
+        "text": "I will give you some example, please answer the question based on the example"
+      },
+      "output": "Okay, I understand. Please provide your example, and I'll do my best to answer your question based on it. I'm ready when you are!"
+    },
+    {
+      "input": {
+        "text": "This is a photo of Border Collie.",
+        "image": "srcs/Poodle_BorderCollie/images/train_Border_Collie_1.jpg"
+      }
+    },
+	{
+      "input": {
+        "text": "This is a photo of Border Collie.",
+        "image": "srcs/Poodle_BorderCollie/images/train_Border_Collie_2.jpg"
+      }
+    },
+    {
+      "input": {
+        "text": "This is a photo of train_Poodle_1.",
+        "image": "srcs/Poodle_BorderCollie/images/train_Poodle_1.jpg"
+      }
+    },
+	{
+      "input": {
+        "text": "This is a photo of train_Poodle_2.",
+        "image": "srcs/Poodle_BorderCollie/images/train_Poodle_2.jpg"
+      }
+    },
+  ]
