@@ -1,0 +1,14 @@
+[
+    {
+      "input": {
+        "text": "what is the object in this photo?",
+        "image": "srcs/Poodle_BorderCollie/images/test_Border_Collie_1.jpg"
+      }
+    },
+    {
+      "input": {
+        "text": "what is the object in this photo?",
+        "image": "srcs/Poodle_BorderCollie/images/test_Poodle_1.jpg"
+      }
+    },
+  ]
