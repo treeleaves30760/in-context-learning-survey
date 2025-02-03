@@ -11,22 +11,10 @@
         "image": "srcs/Poodle_BorderCollie/images/train_Border_Collie_1.jpg"
       }
     },
-	{
-      "input": {
-        "text": "This is a photo of Border Collie.",
-        "image": "srcs/Poodle_BorderCollie/images/train_Border_Collie_2.jpg"
-      }
-    },
     {
       "input": {
-        "text": "This is a photo of train_Poodle_1.",
+        "text": "This is a photo of Poodle.",
         "image": "srcs/Poodle_BorderCollie/images/train_Poodle_1.jpg"
       }
-    },
-	{
-      "input": {
-        "text": "This is a photo of train_Poodle_2.",
-        "image": "srcs/Poodle_BorderCollie/images/train_Poodle_2.jpg"
-      }
-    },
+    }
   ]

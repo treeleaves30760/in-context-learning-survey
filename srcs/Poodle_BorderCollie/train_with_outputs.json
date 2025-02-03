@@ -1,0 +1,22 @@
+[
+  {
+    "input": {
+      "text": "I will give you some example, please answer the question based on the example"
+    },
+    "output": "Okay, I understand. Please provide your example, and I'll do my best to answer your question based on it. I'm ready when you are!"
+  },
+  {
+    "input": {
+      "text": "This is a photo of Border Collie.",
+      "image": "srcs/Poodle_BorderCollie/images/train_Border_Collie_1.jpg"
+    },
+    "output": "<|start_header_id|>assistant<|end_header_id|>\n\nThat's a great photo of a Border Collie. They are such intelligent and energetic dogs, known for their agility and obedience. Border Collies are often used as herding dogs on farms and ranches, but they also make wonderful companions for active families. Did you know that they are one of the most popular breeds in the world?<|eot_id|>"
+  },
+  {
+    "input": {
+      "text": "This is a photo of Poodle.",
+      "image": "srcs/Poodle_BorderCollie/images/train_Poodle_1.jpg"
+    },
+    "output": "<|start_header_id|>assistant<|end_header_id|>\n\nI don't see a photo of a Poodle. The image you provided appears to be a photo of a white dog with curly fur, but it's not clear what breed it is. Can you please provide a clearer or more detailed photo of the dog so I can better identify it?<|eot_id|>"
+  }
+]
